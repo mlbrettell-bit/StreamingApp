@@ -1,277 +1,472 @@
 import React, {useRef, useState} from 'react';
+
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+
 import {TVFocusGuideView} from '@amazon-devices/react-native-kepler';
 
+import {
+  authenticateXtream,
+  getLiveCategories,
+  getLiveStreams,
+  XtreamCategory,
+  XtreamCredentials,
+  XtreamLiveStream,
+} from './services/xtreamApi';
+
+type AppScreen = 'login' | 'categories' | 'channels';
+
 type AuthState =
-  | {type: 'idle'; message: ''}
-  | {type: 'loading'; message: string}
-  | {type: 'success'; message: string}
-  | {type: 'error'; message: string};
-
-type XtreamUserInfo = {
-  auth?: number | string;
-  status?: string;
-  message?: string;
-};
-
-type XtreamAuthResponse = {
-  user_info?: XtreamUserInfo;
-  server_info?: Record<string, unknown>;
-};
-
-const AUTH_TIMEOUT_MS = 12000;
-
-const buildAuthUrl = (
-  serverAddress: string,
-  username: string,
-  password: string,
-) => {
-  const trimmedServer = serverAddress.trim();
-
-  if (!/^https?:\/\//i.test(trimmedServer)) {
-    throw new Error(
-      'Server address must begin with http:// or https://.',
-    );
-  }
-
-  const baseUrl = trimmedServer
-    .replace(/\/player_api\.php(?:\?.*)?$/i, '')
-    .replace(/\/+$/, '');
-
-  return (
-    `${baseUrl}/player_api.php?username=${encodeURIComponent(username)}` +
-    `&password=${encodeURIComponent(password)}`
-  );
-};
-
-const authenticateXtream = async (
-  serverAddress: string,
-  username: string,
-  password: string,
-): Promise<XtreamAuthResponse> => {
-  const requestUrl = buildAuthUrl(serverAddress, username, password);
-
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    const timeout = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(
-          new Error(
-            'Connection timed out. Check the server address, port, and network connection.',
-          ),
-        );
-      }, AUTH_TIMEOUT_MS);
-    });
-
-    const response = await Promise.race([
-      fetch(requestUrl, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-      }),
-      timeout,
-    ]);
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        throw new Error(
-          'Server reached, but the Xtream API was not found. Check the server address and port.',
-        );
-      }
-
-      if (response.status === 401 || response.status === 403) {
-        throw new Error(
-          `Server rejected the request (HTTP ${response.status}). Check your credentials.`,
-        );
-      }
-
-      throw new Error(
-        `Server returned HTTP ${response.status}.`,
-      );
+  | {
+      type: 'idle';
+      message: '';
     }
-
-    const rawBody = await response.text();
-
-    let payload: XtreamAuthResponse;
-
-    try {
-      payload = JSON.parse(rawBody) as XtreamAuthResponse;
-    } catch {
-      throw new Error(
-        'Server reached, but it did not return a valid Xtream JSON response.',
-      );
+  | {
+      type: 'loading';
+      message: string;
     }
-
-    if (!payload.user_info) {
-      throw new Error(
-        'Server reached, but no Xtream account information was returned.',
-      );
-    }
-
-    const authenticated =
-      payload.user_info.auth === 1 ||
-      payload.user_info.auth === '1';
-
-    if (!authenticated) {
-      const providerStatus = payload.user_info.status?.trim();
-      const providerMessage = payload.user_info.message?.trim();
-
-      if (providerStatus && providerMessage) {
-        throw new Error(
-          `Authentication failed: ${providerStatus}. ${providerMessage}`,
-        );
-      }
-
-      if (providerStatus) {
-        throw new Error(
-          `Authentication failed: ${providerStatus}.`,
-        );
-      }
-
-      throw new Error(
-        providerMessage ||
-          'Authentication failed. Check the username and password.',
-      );
-    }
-
-    const accountStatus = payload.user_info.status?.trim();
-
-    if (
-      accountStatus &&
-      accountStatus.toLowerCase() !== 'active'
-    ) {
-      throw new Error(
-        `Account status is ${accountStatus}.`,
-      );
-    }
-
-    return payload;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-
-    throw new Error(
-      'Unable to reach the IPTV server.',
-    );
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
-};
+  | {
+      type: 'error';
+      message: string;
+    };
 
 export const App = () => {
   const usernameRef = useRef<TextInput>(null);
+
   const passwordRef = useRef<TextInput>(null);
 
+  const [screen, setScreen] = useState<AppScreen>('login');
+
   const [serverAddress, setServerAddress] = useState('');
+
   const [username, setUsername] = useState('');
+
   const [password, setPassword] = useState('');
 
-  const [focusedField, setFocusedField] =
-    useState<string | null>(null);
+  const [sessionCredentials, setSessionCredentials] =
+    useState<XtreamCredentials | null>(null);
 
-  const [connectFocused, setConnectFocused] =
-    useState(false);
+  const [categories, setCategories] = useState<XtreamCategory[]>([]);
 
-  const [authState, setAuthState] =
-    useState<AuthState>({
-      type: 'idle',
-      message: '',
-    });
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  const [connectFocused, setConnectFocused] = useState(false);
+
+  const [backFocused, setBackFocused] = useState(false);
+
+  const [focusedCategoryId, setFocusedCategoryId] = useState<string | null>(
+    null,
+  );
+
+  const [selectedCategory, setSelectedCategory] =
+    useState<XtreamCategory | null>(null);
+
+  const [channels, setChannels] = useState<XtreamLiveStream[]>([]);
+
+  const [channelsLoading, setChannelsLoading] = useState(false);
+
+  const [channelError, setChannelError] = useState('');
+
+  const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
+
+  const [selectedChannel, setSelectedChannel] =
+    useState<XtreamLiveStream | null>(null);
+
+  const [authState, setAuthState] = useState<AuthState>({
+    type: 'idle',
+    message: '',
+  });
 
   const handleConnect = async () => {
     if (authState.type === 'loading') {
       return;
     }
 
-    if (
-      !serverAddress.trim() ||
-      !username.trim() ||
-      !password
-    ) {
+    if (!serverAddress.trim() || !username.trim() || !password) {
       setAuthState({
         type: 'error',
-        message:
-          'Enter the server address, username, and password.',
+        message: 'Enter the server address, username, and password.',
       });
 
       return;
     }
 
+    const credentials: XtreamCredentials = {
+      serverAddress: serverAddress.trim(),
+
+      username: username.trim(),
+
+      password,
+    };
+
     setAuthState({
       type: 'loading',
-      message: 'Connecting to IPTV service...',
+      message: 'Authenticating with IPTV service...',
     });
 
     try {
-      await authenticateXtream(
-        serverAddress,
-        username,
-        password,
-      );
+      await authenticateXtream(credentials);
 
       setAuthState({
-        type: 'success',
-        message:
-          'Connection successful. IPTV account authenticated.',
+        type: 'loading',
+        message: 'Connected. Loading Live TV categories...',
       });
+
+      const liveCategories = await getLiveCategories(credentials);
+
+      setSessionCredentials(credentials);
+
+      setCategories(liveCategories);
+
+      setSelectedCategory(null);
+
+      setFocusedCategoryId(null);
+
+      setAuthState({
+        type: 'idle',
+        message: '',
+      });
+
+      setScreen('categories');
     } catch (error) {
       setAuthState({
         type: 'error',
+
         message:
           error instanceof Error
             ? error.message
-            : 'Unable to authenticate with the IPTV service.',
+            : 'Unable to connect to the IPTV service.',
       });
     }
   };
 
+  const handleCategoryPress = async (category: XtreamCategory) => {
+    if (!sessionCredentials) {
+      return;
+    }
+    setSelectedCategory(category);
+    setChannels([]);
+    setSelectedChannel(null);
+    setFocusedChannelId(null);
+    setChannelError('');
+    setChannelsLoading(true);
+    setScreen('channels');
+
+    try {
+      const liveStreams = await getLiveStreams(
+        sessionCredentials,
+        category.category_id,
+      );
+
+      setChannels(liveStreams);
+    } catch (error) {
+      setChannelError(
+        error instanceof Error ? error.message : 'Unable to load channels.',
+      );
+    } finally {
+      setChannelsLoading(false);
+    }
+  };
+
+  const handleBackToCategories = () => {
+    setScreen('categories');
+    setSelectedChannel(null);
+    setFocusedChannelId(null);
+    setChannelError('');
+  };
+
+  const handleBackToLogin = () => {
+    setScreen('login');
+
+    setSelectedCategory(null);
+
+    setFocusedCategoryId(null);
+  };
+
   const inputStyle = (field: string) => [
     styles.input,
-    focusedField === field &&
-      styles.inputFocused,
+
+    focusedField === field && styles.inputFocused,
   ];
+
+  /*
+   * ------------------------------------------------
+   * LIVE TV CHANNEL SCREEN
+   * ------------------------------------------------
+   */
+
+  if (screen === 'channels' && sessionCredentials && selectedCategory) {
+    return (
+      <View style={styles.channelScreen}>
+        <View style={styles.categoryHeader}>
+          <View>
+            <Text style={styles.eyebrow}>LIVE TV</Text>
+
+            <Text style={styles.channelScreenTitle}>
+              {selectedCategory.category_name}
+            </Text>
+
+            {!channelsLoading && !channelError && (
+              <Text style={styles.categorySubtitle}>
+                {channels.length}{' '}
+                {channels.length === 1 ? 'channel' : 'channels'}
+              </Text>
+            )}
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to Live TV categories"
+            onPress={handleBackToCategories}
+            onFocus={() => setBackFocused(true)}
+            onBlur={() => setBackFocused(false)}
+            style={[
+              styles.backButton,
+
+              backFocused && styles.backButtonFocused,
+            ]}>
+            <Text style={styles.backButtonText}>Categories</Text>
+          </Pressable>
+        </View>
+
+        {channelsLoading ? (
+          <View style={styles.channelLoadingContainer}>
+            <ActivityIndicator size="large" color="#5DD6C0" />
+
+            <Text style={styles.channelLoadingText}>Loading channels...</Text>
+          </View>
+        ) : channelError ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Unable to load channels</Text>
+
+            <Text style={styles.emptyText}>{channelError}</Text>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => handleCategoryPress(selectedCategory)}
+              onFocus={() => setConnectFocused(true)}
+              onBlur={() => setConnectFocused(false)}
+              style={[
+                styles.retryButton,
+
+                connectFocused && styles.retryButtonFocused,
+              ]}>
+              <Text style={styles.retryButtonText}>Try Again</Text>
+            </Pressable>
+          </View>
+        ) : channels.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No channels found</Text>
+
+            <Text style={styles.emptyText}>
+              The provider returned no live channels for this category.
+            </Text>
+          </View>
+        ) : (
+          <TVFocusGuideView style={styles.channelListContainer} autoFocus>
+            <FlatList
+              data={channels}
+              keyExtractor={(item) => item.stream_id}
+              initialNumToRender={20}
+              contentContainerStyle={styles.channelList}
+              renderItem={({item}) => {
+                const isFocused = focusedChannelId === item.stream_id;
+
+                const isSelected =
+                  selectedChannel?.stream_id === item.stream_id;
+
+                return (
+                  <Pressable
+                    testID={`channel-${item.stream_id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.name}
+                    onFocus={() => setFocusedChannelId(item.stream_id)}
+                    onBlur={() =>
+                      setFocusedChannelId((current) =>
+                        current === item.stream_id ? null : current,
+                      )
+                    }
+                    onPress={() => setSelectedChannel(item)}
+                    style={[
+                      styles.channelRow,
+
+                      isSelected && styles.channelRowSelected,
+
+                      isFocused && styles.channelRowFocused,
+                    ]}>
+                    <View style={styles.channelNumberContainer}>
+                      <Text style={styles.channelNumber}>
+                        {item.num ?? '—'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.channelInfo}>
+                      <Text numberOfLines={1} style={styles.channelName}>
+                        {item.name}
+                      </Text>
+
+                      {item.epg_channel_id ? (
+                        <Text numberOfLines={1} style={styles.channelMeta}>
+                          EPG: {item.epg_channel_id}
+                        </Text>
+                      ) : (
+                        <Text style={styles.channelMeta}>
+                          Stream ID: {item.stream_id}
+                        </Text>
+                      )}
+                    </View>
+
+                    <Text style={styles.channelArrow}>›</Text>
+                  </Pressable>
+                );
+              }}
+            />
+          </TVFocusGuideView>
+        )}
+
+        {selectedChannel && (
+          <View style={styles.selectionPanel}>
+            <View>
+              <Text style={styles.selectionLabel}>SELECTED CHANNEL</Text>
+
+              <Text style={styles.selectionTitle}>{selectedChannel.name}</Text>
+            </View>
+
+            <Text style={styles.selectionHint}>
+              Channel selection is working. Playback comes next.
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  /*
+   * ------------------------------------------------
+   * LIVE TV CATEGORY SCREEN
+   * ------------------------------------------------
+   */
+
+  if (screen === 'categories' && sessionCredentials) {
+    return (
+      <View style={styles.categoryScreen}>
+        <View style={styles.categoryHeader}>
+          <View>
+            <Text style={styles.eyebrow}>LIVE TV</Text>
+
+            <Text style={styles.categoryTitle}>Categories</Text>
+
+            <Text style={styles.categorySubtitle}>
+              {categories.length}{' '}
+              {categories.length === 1 ? 'category' : 'categories'} loaded
+            </Text>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to IPTV login"
+            onPress={handleBackToLogin}
+            onFocus={() => setBackFocused(true)}
+            onBlur={() => setBackFocused(false)}
+            style={[
+              styles.backButton,
+
+              backFocused && styles.backButtonFocused,
+            ]}>
+            <Text style={styles.backButtonText}>Back</Text>
+          </Pressable>
+        </View>
+
+        {categories.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No Live TV categories</Text>
+
+            <Text style={styles.emptyText}>
+              The IPTV account authenticated, but the provider returned no Live
+              TV categories.
+            </Text>
+          </View>
+        ) : (
+          <TVFocusGuideView style={styles.categoryListContainer} autoFocus>
+            <FlatList
+              data={categories}
+              keyExtractor={(item) => item.category_id}
+              numColumns={4}
+              initialNumToRender={16}
+              contentContainerStyle={styles.categoryList}
+              renderItem={({item}) => {
+                const isFocused = focusedCategoryId === item.category_id;
+
+                const isSelected =
+                  selectedCategory?.category_id === item.category_id;
+
+                return (
+                  <Pressable
+                    testID={`category-${item.category_id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.category_name}
+                    onFocus={() => setFocusedCategoryId(item.category_id)}
+                    onBlur={() =>
+                      setFocusedCategoryId((current) =>
+                        current === item.category_id ? null : current,
+                      )
+                    }
+                    onPress={() => handleCategoryPress(item)}
+                    style={[
+                      styles.categoryCard,
+
+                      isSelected && styles.categoryCardSelected,
+
+                      isFocused && styles.categoryCardFocused,
+                    ]}>
+                    <Text numberOfLines={2} style={styles.categoryCardTitle}>
+                      {item.category_name}
+                    </Text>
+
+                    <Text style={styles.categoryCardId}>
+                      ID {item.category_id}
+                    </Text>
+                  </Pressable>
+                );
+              }}
+            />
+          </TVFocusGuideView>
+        )}
+      </View>
+    );
+  }
+
+  /*
+   * ------------------------------------------------
+   * LOGIN SCREEN
+   * ------------------------------------------------
+   */
 
   return (
     <View style={styles.screen}>
       <View style={styles.hero}>
-        <Text style={styles.eyebrow}>
-          IPTV PLAYER
-        </Text>
+        <Text style={styles.eyebrow}>IPTV PLAYER</Text>
 
-        <Text style={styles.title}>
-          Connect your service
-        </Text>
+        <Text style={styles.title}>Connect your service</Text>
 
         <Text style={styles.subtitle}>
-          Enter the Xtream credentials supplied
-          by your IPTV provider.
+          Enter the Xtream credentials supplied by your IPTV provider.
         </Text>
 
         <Text style={styles.disclaimer}>
-          This application does not provide or
-          host any media.
+          This application does not provide or host any media.
         </Text>
       </View>
 
-      <TVFocusGuideView
-        style={styles.card}
-        autoFocus>
-
-        <Text style={styles.label}>
-          Server Address
-        </Text>
+      <TVFocusGuideView style={styles.card} autoFocus>
+        <Text style={styles.label}>Server Address</Text>
 
         <TextInput
           testID="server-input"
@@ -279,15 +474,9 @@ export const App = () => {
           style={inputStyle('server')}
           value={serverAddress}
           onChangeText={setServerAddress}
-          onFocus={() =>
-            setFocusedField('server')
-          }
-          onBlur={() =>
-            setFocusedField(null)
-          }
-          onSubmitEditing={() =>
-            usernameRef.current?.focus()
-          }
+          onFocus={() => setFocusedField('server')}
+          onBlur={() => setFocusedField(null)}
+          onSubmitEditing={() => usernameRef.current?.focus()}
           placeholder="https://server.example.com:port"
           placeholderTextColor="#77808F"
           autoCapitalize="none"
@@ -295,9 +484,7 @@ export const App = () => {
           returnKeyType="next"
         />
 
-        <Text style={styles.label}>
-          Username
-        </Text>
+        <Text style={styles.label}>Username</Text>
 
         <TextInput
           ref={usernameRef}
@@ -306,15 +493,9 @@ export const App = () => {
           style={inputStyle('username')}
           value={username}
           onChangeText={setUsername}
-          onFocus={() =>
-            setFocusedField('username')
-          }
-          onBlur={() =>
-            setFocusedField(null)
-          }
-          onSubmitEditing={() =>
-            passwordRef.current?.focus()
-          }
+          onFocus={() => setFocusedField('username')}
+          onBlur={() => setFocusedField(null)}
+          onSubmitEditing={() => passwordRef.current?.focus()}
           placeholder="Username"
           placeholderTextColor="#77808F"
           autoCapitalize="none"
@@ -322,9 +503,7 @@ export const App = () => {
           returnKeyType="next"
         />
 
-        <Text style={styles.label}>
-          Password
-        </Text>
+        <Text style={styles.label}>Password</Text>
 
         <TextInput
           ref={passwordRef}
@@ -333,12 +512,8 @@ export const App = () => {
           style={inputStyle('password')}
           value={password}
           onChangeText={setPassword}
-          onFocus={() =>
-            setFocusedField('password')
-          }
-          onBlur={() =>
-            setFocusedField(null)
-          }
+          onFocus={() => setFocusedField('password')}
+          onBlur={() => setFocusedField(null)}
           onSubmitEditing={handleConnect}
           placeholder="Password"
           placeholderTextColor="#77808F"
@@ -349,8 +524,8 @@ export const App = () => {
         />
 
         <Text style={styles.helperText}>
-          Enter the exact server address and port
-          supplied by your IPTV provider.
+          Enter the exact server address and port supplied by your IPTV
+          provider.
         </Text>
 
         <Pressable
@@ -359,37 +534,23 @@ export const App = () => {
           accessibilityLabel="Connect to IPTV service"
           disabled={authState.type === 'loading'}
           onPress={handleConnect}
-          onFocus={() =>
-            setConnectFocused(true)
-          }
-          onBlur={() =>
-            setConnectFocused(false)
-          }
+          onFocus={() => setConnectFocused(true)}
+          onBlur={() => setConnectFocused(false)}
           style={[
             styles.connectButton,
-            connectFocused &&
-              styles.connectButtonFocused,
-            authState.type === 'loading' &&
-              styles.connectButtonDisabled,
-          ]}>
 
+            connectFocused && styles.connectButtonFocused,
+
+            authState.type === 'loading' && styles.connectButtonDisabled,
+          ]}>
           {authState.type === 'loading' ? (
             <View style={styles.buttonContent}>
-              <ActivityIndicator
-                size="small"
-                color="#071019"
-              />
+              <ActivityIndicator size="small" color="#071019" />
 
-              <Text
-                style={styles.connectButtonText}>
-                Connecting...
-              </Text>
+              <Text style={styles.connectButtonText}>Connecting...</Text>
             </View>
           ) : (
-            <Text
-              style={styles.connectButtonText}>
-              Connect
-            </Text>
+            <Text style={styles.connectButtonText}>Connect</Text>
           )}
         </Pressable>
 
@@ -399,36 +560,30 @@ export const App = () => {
             style={[
               styles.messageBox,
 
-              authState.type === 'success'
-                ? styles.successBox
-                : authState.type === 'error'
-                  ? styles.errorBox
-                  : styles.loadingBox,
+              authState.type === 'error' ? styles.errorBox : styles.loadingBox,
             ]}>
-
             <Text
               style={[
                 styles.messageText,
 
-                authState.type === 'success'
-                  ? styles.successText
-                  : authState.type === 'error'
-                    ? styles.errorText
-                    : styles.loadingText,
+                authState.type === 'error'
+                  ? styles.errorText
+                  : styles.loadingText,
               ]}>
-
               {authState.message}
-
             </Text>
           </View>
         )}
-
       </TVFocusGuideView>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  /*
+   * LOGIN
+   */
+
   screen: {
     flex: 1,
     backgroundColor: '#071019',
@@ -525,7 +680,11 @@ const styles = StyleSheet.create({
 
   connectButtonFocused: {
     borderColor: '#FFFFFF',
-    transform: [{scale: 1.03}],
+    transform: [
+      {
+        scale: 1.03,
+      },
+    ],
   },
 
   connectButtonDisabled: {
@@ -552,11 +711,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
-  successBox: {
-    backgroundColor: '#0E2B25',
-    borderColor: '#2D8A73',
-  },
-
   errorBox: {
     backgroundColor: '#32191C',
     borderColor: '#A94B55',
@@ -572,15 +726,300 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
 
-  successText: {
-    color: '#8EE7D2',
-  },
-
   errorText: {
     color: '#FFB2B9',
   },
 
   loadingText: {
     color: '#B7C8D8',
+  },
+
+  /*
+   * LIVE TV CHANNEL SCREEN
+   */
+
+  channelScreen: {
+    flex: 1,
+    backgroundColor: '#071019',
+    paddingHorizontal: 64,
+    paddingTop: 44,
+    paddingBottom: 32,
+  },
+
+  channelScreenTitle: {
+    color: '#F7FAFC',
+    fontSize: 44,
+    lineHeight: 52,
+    fontWeight: '700',
+    maxWidth: 900,
+  },
+
+  channelListContainer: {
+    flex: 1,
+  },
+
+  channelList: {
+    paddingBottom: 24,
+  },
+
+  channelRow: {
+    minHeight: 78,
+    marginVertical: 5,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    borderWidth: 3,
+    borderColor: '#243241',
+    backgroundColor: '#101B27',
+
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  channelRowFocused: {
+    borderColor: '#5DD6C0',
+    backgroundColor: '#152D35',
+
+    transform: [
+      {
+        scale: 1.01,
+      },
+    ],
+  },
+
+  channelRowSelected: {
+    backgroundColor: '#17362F',
+  },
+
+  channelNumberContainer: {
+    width: 72,
+  },
+
+  channelNumber: {
+    color: '#718093',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+
+  channelInfo: {
+    flex: 1,
+  },
+
+  channelName: {
+    color: '#F7FAFC',
+    fontSize: 22,
+    fontWeight: '700',
+  },
+
+  channelMeta: {
+    color: '#718093',
+    fontSize: 14,
+    marginTop: 4,
+  },
+
+  channelArrow: {
+    color: '#5DD6C0',
+    fontSize: 34,
+    marginLeft: 20,
+  },
+
+  channelLoadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  channelLoadingText: {
+    color: '#AAB4C3',
+    fontSize: 20,
+    marginTop: 18,
+  },
+
+  retryButton: {
+    marginTop: 28,
+    minWidth: 180,
+    minHeight: 58,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    backgroundColor: '#5DD6C0',
+    borderWidth: 3,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  retryButtonFocused: {
+    borderColor: '#FFFFFF',
+
+    transform: [
+      {
+        scale: 1.05,
+      },
+    ],
+  },
+
+  retryButtonText: {
+    color: '#071019',
+    fontSize: 19,
+    fontWeight: '800',
+  },
+
+  /*
+   * LIVE TV CATEGORY SCREEN
+   */
+
+  categoryScreen: {
+    flex: 1,
+    backgroundColor: '#071019',
+    paddingHorizontal: 64,
+    paddingTop: 44,
+    paddingBottom: 32,
+  },
+
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 26,
+  },
+
+  categoryTitle: {
+    color: '#F7FAFC',
+    fontSize: 48,
+    lineHeight: 54,
+    fontWeight: '700',
+  },
+
+  categorySubtitle: {
+    color: '#8793A4',
+    fontSize: 19,
+    marginTop: 6,
+  },
+
+  backButton: {
+    minWidth: 130,
+    height: 56,
+    paddingHorizontal: 26,
+    borderRadius: 12,
+    backgroundColor: '#152230',
+    borderWidth: 3,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  backButtonFocused: {
+    borderColor: '#5DD6C0',
+    transform: [
+      {
+        scale: 1.05,
+      },
+    ],
+  },
+
+  backButtonText: {
+    color: '#FFFFFF',
+    fontSize: 19,
+    fontWeight: '700',
+  },
+
+  categoryListContainer: {
+    flex: 1,
+  },
+
+  categoryList: {
+    paddingBottom: 24,
+  },
+
+  categoryCard: {
+    flex: 1,
+    height: 128,
+    margin: 9,
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: '#101B27',
+    borderWidth: 3,
+    borderColor: '#243241',
+    justifyContent: 'space-between',
+  },
+
+  categoryCardFocused: {
+    backgroundColor: '#152D35',
+    borderColor: '#5DD6C0',
+    transform: [
+      {
+        scale: 1.05,
+      },
+    ],
+  },
+
+  categoryCardSelected: {
+    backgroundColor: '#17362F',
+  },
+
+  categoryCardTitle: {
+    color: '#F4F7FA',
+    fontSize: 21,
+    lineHeight: 26,
+    fontWeight: '700',
+  },
+
+  categoryCardId: {
+    color: '#718093',
+    fontSize: 14,
+  },
+
+  selectionPanel: {
+    minHeight: 82,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2D8A73',
+    backgroundColor: '#0E2B25',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  selectionLabel: {
+    color: '#5DD6C0',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+
+  selectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+
+  selectionHint: {
+    color: '#8EE7D2',
+    fontSize: 16,
+    maxWidth: 520,
+    textAlign: 'right',
+  },
+
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  emptyTitle: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: '700',
+  },
+
+  emptyText: {
+    color: '#8793A4',
+    fontSize: 19,
+    marginTop: 12,
+    maxWidth: 600,
+    textAlign: 'center',
+    lineHeight: 27,
   },
 });

@@ -1,20 +1,45 @@
 import 'react-native';
-import {render} from '@testing-library/react-native';
+
+import {
+  render,
+} from '@testing-library/react-native';
+
 import * as React from 'react';
 
-import {App} from '../src/App';
+import {
+  App,
+} from '../src/App';
 
 describe('App', () => {
-  it('matches snapshot', () => {
-    const screen = render(<App />);
-    expect(screen).toMatchSnapshot();
-  });
+  it(
+    'renders the IPTV login screen',
+    () => {
+      const screen =
+        render(<App />);
 
-  it('renders all tiles', () => {
-    const screen = render(<App />);
-    expect(screen.getByTestId('tile-home')).toBeTruthy();
-    expect(screen.getByTestId('tile-get-started')).toBeTruthy();
-    expect(screen.getByTestId('tile-debug')).toBeTruthy();
-    expect(screen.getByTestId('tile-learn-more')).toBeTruthy();
-  });
+      expect(
+        screen.getByTestId(
+          'server-input',
+        ),
+      ).toBeTruthy();
+
+      expect(
+        screen.getByTestId(
+          'username-input',
+        ),
+      ).toBeTruthy();
+
+      expect(
+        screen.getByTestId(
+          'password-input',
+        ),
+      ).toBeTruthy();
+
+      expect(
+        screen.getByTestId(
+          'connect-button',
+        ),
+      ).toBeTruthy();
+    },
+  );
 });
