@@ -21,7 +21,11 @@ import {
   XtreamLiveStream,
 } from './services/xtreamApi';
 
-type AppScreen = 'login' | 'categories' | 'channels';
+import {buildLiveStreamUrl} from './services/xtreamApi';
+
+import {LivePlayer} from './components/LivePlayer';
+
+type AppScreen = 'login' | 'categories' | 'channels' | 'player';
 
 type AuthState =
   | {
@@ -175,6 +179,12 @@ export const App = () => {
     }
   };
 
+  const handleChannelPress = (channel: XtreamLiveStream) => {
+    setSelectedChannel(channel);
+
+    setScreen('player');
+  };
+
   const handleBackToCategories = () => {
     setScreen('categories');
     setSelectedChannel(null);
@@ -196,6 +206,28 @@ export const App = () => {
     focusedField === field && styles.inputFocused,
   ];
 
+  /*
+   * ------------------------------------------------
+   * LIVE PLAYER SCREEN
+   * ------------------------------------------------
+   */
+
+  if (screen === 'player' && sessionCredentials && selectedChannel) {
+    const streamUrl = buildLiveStreamUrl(
+      sessionCredentials,
+      selectedChannel.stream_id,
+    );
+
+    return (
+      <LivePlayer
+        streamUrl={streamUrl}
+        channelName={selectedChannel.name}
+        onClose={() => {
+          setScreen('channels');
+        }}
+      />
+    );
+  }
   /*
    * ------------------------------------------------
    * LIVE TV CHANNEL SCREEN
@@ -293,7 +325,7 @@ export const App = () => {
                         current === item.stream_id ? null : current,
                       )
                     }
-                    onPress={() => setSelectedChannel(item)}
+                    onPress={() => handleChannelPress(item)}
                     style={[
                       styles.channelRow,
 

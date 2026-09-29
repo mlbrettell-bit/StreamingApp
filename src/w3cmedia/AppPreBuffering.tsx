@@ -182,8 +182,13 @@ export const App = () => {
     );
   } else {
     return nextContent.index === nextContentRef.current ? (
-      <TouchableOpacity style={{ backgroundColor: "#ffffff", alignItems: "stretch",
-        width: '100%', height: '100%'}}
+      <TouchableOpacity
+        style={{
+          backgroundColor: '#ffffff',
+          alignItems: 'stretch',
+          width: '100%',
+          height: '100%',
+        }}
         activeOpacity={1}>
         <KeplerVideoSurfaceView
           style={styles.surfaceView}

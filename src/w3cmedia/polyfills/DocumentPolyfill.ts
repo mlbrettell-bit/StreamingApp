@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*
  * Copyright 2022-2024 Amazon.com, Inc. or its affiliates. All rights reserved.
  *
@@ -12,28 +13,24 @@
  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
  */
 
+declare global {
+  namespace globalThis {
+    var gmedia: any;
+    var document: any;
+  }
+}
+
 class Document {
   createElement = (name: string) => {
     console.log(`document.createElement ${name}`);
-    // @ts-ignore
     return global.gmedia;
   };
   getElementsByTagName = (name: string) => {
     console.log(`document.getElementsByTagName ${name}`);
-    // @ts-ignore
     return global.gmedia;
-  };
-  addEventListener = (type: string, listener: any, options?: any) => {
-    // No-op implementation for React Native/FireStick compatibility
-    // document events like fullscreenchange and visibilitychange
-    // are not supported on these platforms
-  };
-  removeEventListener = (type: string, listener: any, options?: any) => {
-    // No-op implementation for React Native/FireStick compatibility
   };
   static install() {
     console.log('Installing Document polyfill');
-    // @ts-ignore
     global.document = new Document();
   }
 }

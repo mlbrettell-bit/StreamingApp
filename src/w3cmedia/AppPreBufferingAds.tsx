@@ -116,8 +116,8 @@ const reducer = (state: any, action: any) => {
       return {...state, timeoutId: action.payload};
     case ACTIONS.SET_AD_PLAYED:
       return {...state, adPlayed: true};
-      case ACTIONS.SET_AD_PLAYER_INITIALIZED:
-        return {...state, adPlayerInitialized: true};
+    case ACTIONS.SET_AD_PLAYER_INITIALIZED:
+      return {...state, adPlayerInitialized: true};
     default:
       console.log('reducer unkonwn action action.type = ', action.type);
   }
@@ -248,10 +248,7 @@ export const App = () => {
 
   // Helper functions
   const setSurfaceToMainPlayer = (mainPlayback: boolean) => {
-    if (
-      mainPlayer.current === null ||
-      cachedSurface.current === null
-    ) {
+    if (mainPlayer.current === null || cachedSurface.current === null) {
       console.log('app: setSurface: mainPlayer or surface is null');
       return;
     }
@@ -272,7 +269,8 @@ export const App = () => {
     if (mainPlayer.current !== null) {
       console.log(
         'Init complete, return early from handleInit mainPlayer =',
-        mainPlayer);
+        mainPlayer,
+      );
       return;
     }
     await initializeVideoPlayerMain();
@@ -332,7 +330,10 @@ export const App = () => {
       'app: new state  = MAIN_PLAYING',
       mainPlayer.current!.currentTime,
     );
-    if (mainPlayer.current!.currentTime >= state.adStart && !state.adPlayerInitialized) {
+    if (
+      mainPlayer.current!.currentTime >= state.adStart &&
+      !state.adPlayerInitialized
+    ) {
       initializePlayerAd();
     }
     if (timeoutId.current === null) {
@@ -511,4 +512,3 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
 });
-

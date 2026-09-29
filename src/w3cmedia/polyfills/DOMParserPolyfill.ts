@@ -13,7 +13,7 @@
  */
 
 // @ts-nocheck
-import {DOMParser} from '@xmldom/xmldom';
+import {DOMParser} from 'xmldom';
 
 // CustomDOMParser will try to use native xml parser
 // provided by native-player-utils (sets property

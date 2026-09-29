@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 Amazon.com, Inc. or its affiliates. All rights reserved.
+ * Copyright 2022-2025 Amazon.com, Inc. or its affiliates. All rights reserved.
  *
  * AMAZON PROPRIETARY/CONFIDENTIAL
  *
@@ -11,11 +11,14 @@
  * IMPLIED, OR STATUTORY, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
  */
-export interface PlayerInterface {
-  load(content: any, autoplay: boolean): void;
-  play(): void;
-  pause(): void;
-  seekBack(): void;
-  seekFront(): void;
-  unload(): void;
+// @ts-nocheck
+import { TextDecoder } from "@amazon-devices/react-native-w3cmedia/dist/headless";
+
+class TextDecoderPolyfill {
+  static install() {
+    console.log("Installing TextDecoder polyfill");
+    global.window.TextDecoder = TextDecoder;
+  }
 }
+
+export default TextDecoderPolyfill;

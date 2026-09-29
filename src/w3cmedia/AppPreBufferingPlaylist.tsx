@@ -227,5 +227,5 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
     zIndex: 2,
-  }
+  },
 });

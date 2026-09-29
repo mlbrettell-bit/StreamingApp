@@ -25,7 +25,8 @@
     "base-64": "^1.0.0",
     "fastestsmallesttextencoderdecoder": "^1.0.22",
     "react": "19.2.0",
-    "react-native": "0.83.0"
+    "react-native": "0.83.0",
+    "xmldom": "^0.6.0"
   },
   "engines": {
     "node": ">=20"

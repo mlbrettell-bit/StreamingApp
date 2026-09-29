@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2024 Amazon.com, Inc. or its affiliates. All rights reserved.
+ * Copyright 2022-2025 Amazon.com, Inc. or its affiliates. All rights reserved.
  *
  * AMAZON PROPRIETARY/CONFIDENTIAL
  *
@@ -20,20 +20,15 @@ import {
   HTMLMediaElement,
   TextTrackCue,
   VTTCue,
-  TextTrackImpl,
   decodingInfo as decodingInfoImpl,
-  MediaError,
-  sourcebufferimpl,
-} from '@amazon-devices/react-native-w3cmedia';
+} from '@amazon-devices/react-native-w3cmedia/dist/headless';
 
 class W3CMediaPolyfill {
   static install() {
-    console.log('Installing W3CMedia polyfills with decodingInfo');
+    console.log('Installing W3CMedia polyfills');
     global.window.MediaSource = global.MediaSource = MediaSource;
-    global.window.SourceBuffer = global.SourceBuffer = sourcebufferimpl;
     global.window.TextTrackCue = global.TextTrackCue = TextTrackCue;
     global.window.VTTCue = global.VTTCue = VTTCue;
-    global.window.TextTrack = global.TextTrack = TextTrackImpl;
     window["TextTrackCue"] = TextTrackCue;
     if(!window.TextTrackCue) {
         console.log("TextTrackCue not polyfilled");
@@ -42,23 +37,13 @@ class W3CMediaPolyfill {
     if(!window.VTTCue) {
       console.log("VTTCue not polyfilled");
     }
-    window["TextTrack"] = TextTrackImpl;
-    if(!window.TextTrack) {
-      console.log("TextTrack not polyfilled");
-    }
     global.navigator.requestMediaKeySystemAccess = requestMediaKeySystemAccess;
     global.navigator.mediaCapabilities = ({});
     global.navigator.mediaCapabilities.decodingInfo = decodingInfoImpl;
     global.HTMLMediaElement = HTMLMediaElement;
-    global.window.MediaError = global.MediaError = MediaError;
     global.Node = {};
     global.Node.TEXT_NODE = 3;
     global.Node.CDATA_SECTION_NODE = 4;
-    if (typeof HTMLMediaElement.prototype.getElementsByTagName == "undefined") {
-      HTMLMediaElement.prototype.getElementsByTagName = function (_tagName) {
-        return [];
-      };
-    }
   }
 }
 

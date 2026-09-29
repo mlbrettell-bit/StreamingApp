@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*
  * Copyright 2022-2024 Amazon.com, Inc. or its affiliates. All rights reserved.
  *
@@ -11,14 +12,22 @@
  * IMPLIED, OR STATUTORY, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
  */
-// @ts-nocheck
-import { TextDecoder } from "@amazon-devices/react-native-w3cmedia";
 
-class TextDecoderPolyfill {
-  static install() {
-    console.log("Installing TextDecoder polyfill");
-    global.window.TextDecoder = TextDecoder;
+declare global {
+  namespace globalThis {
+    var Element: any;
   }
 }
 
-export default TextDecoderPolyfill;
+class Element {
+  tagName: string;
+  constructor(tagName: string) {
+    this.tagName = tagName;
+  }
+  static install() {
+    console.log('Installing Element Polyfill');
+    global.Element = Element;
+  }
+}
+
+export default Element;

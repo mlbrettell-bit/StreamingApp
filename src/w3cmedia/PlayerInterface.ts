@@ -1,5 +1,6 @@
+// @ts-nocheck
 /*
- * Copyright 2022-2024 Amazon.com, Inc. or its affiliates. All rights reserved.
+ * Copyright 2024 Amazon.com, Inc. or its affiliates. All rights reserved.
  *
  * AMAZON PROPRIETARY/CONFIDENTIAL
  *
@@ -11,17 +12,11 @@
  * IMPLIED, OR STATUTORY, INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
  */
-
-class Element {
-  tagName: string;
-  constructor(tagName: string) {
-    this.tagName = tagName;
-  }
-  static install() {
-    console.log('Installing Element Polyfill');
-    // @ts-ignore
-    global.Element = Element;
-  }
+export interface PlayerInterface {
+  load(content: any, autoplay: boolean): void;
+  play(): void;
+  pause(): void;
+  seekBack(): void;
+  seekFront(): void;
+  unload(): void;
 }
-
-export default Element;

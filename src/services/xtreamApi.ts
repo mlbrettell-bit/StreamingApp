@@ -256,3 +256,17 @@ export const getLiveStreams = async (
           : undefined,
     }));
 };
+
+export const buildLiveStreamUrl = (
+  credentials: XtreamCredentials,
+  streamId: string,
+): string => {
+  const baseUrl = normalizeServerAddress(credentials.serverAddress);
+
+  return (
+    `${baseUrl}/live/` +
+    `${encodeURIComponent(credentials.username)}/` +
+    `${encodeURIComponent(credentials.password)}/` +
+    `${encodeURIComponent(streamId)}.m3u8`
+  );
+};
